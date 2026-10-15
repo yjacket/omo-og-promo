@@ -1,5 +1,6 @@
 // User-managed (not OMO): footer label while og-promo (~/.omo/og-promo, task omo-og-promo) has its
 // deepseek rung in ~/.omo/omo.jsonc. Read-only; the footer never reaches the model or the prompt cache.
+// While the rung is on, typed prompts also get a hidden nudge toward the discounted lanes (NUDGE).
 import { readFileSync, watch, type FSWatcher } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
@@ -30,6 +31,13 @@ export function promoStatus(home: string, now = Date.now()): string | undefined 
   return `deepseek 할인${until}`
 }
 
+// Appended to typed prompts while the promo is on. The system prompt stays untouched, so the cache survives the toggle.
+export const NUDGE = `<og-promo-nudge>
+OpenGateway deepseek is 90% off right now, and the quick category plus the explore and librarian agents run on it; every other category costs what it always does. Ignore this note unless this prompt asks for planning or implementing code work beyond a few-line change.
+- Planning: before deciding, fan out explore (codebase) and librarian (docs, external code) agents in parallel and gather as much as they can find; prefer several narrow searches over one broad one.
+- Implementation: split the work into independent lanes and run them through workflows (mass-ulw for dependency-ordered phases): one workflow per phase, several where lanes are independent; the workflow is one tool among the others, not the whole plan. Route every lane whose brief is explicit and self-contained (named files, numbered steps, a concrete success check) to category quick; keep design decisions and cross-cutting changes on the usual categories.
+</og-promo-nudge>`
+
 export default function (pi: any): void {
   let ctx: any
   let watchers: FSWatcher[] = []
@@ -57,6 +65,11 @@ export default function (pi: any): void {
     }
     timer = setInterval(refresh, 60_000)
     timer.unref?.()
+  })
+  pi.on("before_agent_start", (event: any) => {
+    if (event?.preview === true || (event?.trigger ?? "prompt") !== "prompt") return undefined
+    if (promoStatus(homedir()) === undefined) return undefined
+    return { message: { customType: "og-promo-nudge", content: NUDGE, display: false } }
   })
   pi.on("session_shutdown", () => {
     stop()
