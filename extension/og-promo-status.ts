@@ -6,7 +6,7 @@ import { readFileSync, watch, type FSWatcher } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 
-const STATUS_KEY = "og-promo"
+const STATUS_KEY = "omo-og-promo"
 const RUNG = "\"opengateway/deepseek/deepseek-v4.1-flash-ultrafast"
 
 /** When the discounted price ends (og-promo's state nextAt), or null when unknown. */
@@ -30,8 +30,10 @@ export function promoStatus(home: string, now = Date.now()): string | undefined 
   if (!on) return undefined
   const endAt = promoEnd(home)
   if (endAt === null || endAt <= now) return "deepseek 할인"
-  const end = new Date(endAt)
-  return `deepseek 할인 ~${String(end.getHours()).padStart(2, "0")}:${String(end.getMinutes()).padStart(2, "0")}`
+  const minutes = Math.floor((endAt - now) / 60_000)
+  const hours = Math.floor(minutes / 60)
+  const left = hours >= 24 ? `${hours}h` : hours > 0 ? `${hours}h ${minutes % 60}m` : `${minutes}m`
+  return `deepseek 할인 ~${left}`
 }
 
 // Hidden messages after the typed prompt; the system prompt stays untouched, so the cache survives the toggle.
@@ -67,7 +69,13 @@ export default function (pi: any): void {
     ctx = next
     if (!ctx?.hasUI || typeof ctx.ui?.setStatus !== "function") return
     const home = homedir()
-    const refresh = (): void => ctx?.ui.setStatus(STATUS_KEY, promoStatus(home))
+    const refresh = (): void => {
+      try {
+        ctx?.ui.setStatus(STATUS_KEY, promoStatus(home))
+      } catch {
+        // ctx went stale after a reload or session switch; session_start rebinds it
+      }
+    }
     refresh()
     // og-promo writes through tmp + rename, so watch the directories, not the files.
     for (const [dir, file] of [[join(home, ".omo"), "omo.jsonc"], [join(home, ".omo", "og-promo"), "state.json"]]) {
@@ -86,7 +94,7 @@ export default function (pi: any): void {
     const branch = turn?.sessionManager?.getBranch?.() ?? []
     const message = promoMessage(promoStatus(home) !== undefined, promoEnd(home), branch)
     return message && { message }
-  })
+  }, { previewSafe: true })
   pi.on("session_shutdown", () => {
     stop()
     ctx = undefined

@@ -7,7 +7,7 @@
 //
 // Usage: node og-promo.mjs [--dry-run] [--config <omo.jsonc>] [--prices <fixture.json>]
 //                          [--now <iso>] [--state <state.json>] [--log <log file>]
-import { appendFileSync, copyFileSync, readFileSync, renameSync, writeFileSync } from "node:fs"
+import { appendFileSync, copyFileSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -36,11 +36,23 @@ const { values: opts } = parseArgs({
     now: { type: "string" },
     state: { type: "string", default: join(DIR, "state.json") },
     log: { type: "string", default: join(DIR, "og-promo.log") },
-    extension: { type: "string", default: join(HOME, ".omo", "agent", "extensions", "routing.ts") },
+    extension: { type: "string" },
   },
 })
 
-const { parseJsonc, parseJsoncTree } = await import(pathToFileURL(opts.extension).href)
+// routing.ts moved from the extensions dir into the omo-routing package (2026-10-16); try the package first.
+const ROUTING = opts.extension
+  ? [opts.extension]
+  : [
+      join(HOME, ".omo", "agent", "git", "github.com", "yjacket", "omo-routing", "extension", "routing.ts"),
+      join(HOME, ".omo", "agent", "extensions", "routing.ts"),
+    ]
+const routingPath = ROUTING.find((p) => existsSync(p))
+if (!routingPath) {
+  log({ error: `routing.ts not found: ${ROUTING.join(", ")}` })
+  process.exit(1)
+}
+const { parseJsonc, parseJsoncTree } = await import(pathToFileURL(routingPath).href)
 
 const isRung = (x) => (typeof x === "string" ? x.split(":")[0] === MODEL : x?.model === MODEL)
 const rungText = (rung) =>
