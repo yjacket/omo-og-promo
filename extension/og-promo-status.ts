@@ -1,7 +1,9 @@
-// User-managed (not OMO): footer label while og-promo (~/.omo/og-promo, task omo-og-promo) has its
-// deepseek rung in the root [native] lanes of ~/.omo/omo.jsonc (profiles are not looked at). Read-only; the footer never reaches the model or the prompt cache.
-// Once per discount window (again after a compaction), a typed prompt also gets a hidden nudge toward the discounted
-// lanes (nudge()), and the first typed prompt after the window gets a one-line retraction (END).
+// User-managed (not OMO): footer label with deepseek's current OpenGateway discount and the time until the price
+// changes, from og-promo's schedule (~/.omo/og-promo/state.json, task omo-og-promo). Read-only; the footer never
+// reaches the model or the prompt cache. While og-promo has the rung in the root [native] lanes of ~/.omo/omo.jsonc
+// (profiles are not looked at), once per discount window (again after a compaction) a typed prompt also gets a hidden
+// nudge toward the discounted lanes (nudge()), and the first typed prompt after the window gets a one-line retraction
+// (END).
 import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
@@ -28,30 +30,50 @@ export function rungOn(config: string): boolean {
     (native?.[kind]?.[name]?.models ?? []).some(rung => (typeof rung === "string" ? rung.split(":")[0] : rung?.model) === MODEL))
 }
 
-/** When the discounted price ends (og-promo's state nextAt), or null when unknown. */
-export function promoEnd(home: string): number | null {
+type Schedule = { discountNow: number; nextAt: number | null; discountNext: number | null }
+
+/** og-promo's last price schedule (state.json), or null when missing or unreadable. */
+function promoSchedule(home: string): Schedule | null {
   try {
     const state = JSON.parse(readFileSync(join(home, ".omo", "og-promo", "state.json"), "utf8"))
-    return typeof state.nextAt === "number" ? state.nextAt : null
+    if (typeof state.discountNow !== "number") return null
+    return {
+      discountNow: state.discountNow,
+      nextAt: typeof state.nextAt === "number" ? state.nextAt : null,
+      discountNext: typeof state.discountNext === "number" ? state.discountNext : null,
+    }
   } catch {
     return null // missing or unreadable state
   }
 }
 
-export function promoStatus(home: string, now = Date.now()): string | undefined {
-  let on: boolean
+/** When the current price ends (og-promo's state nextAt), or null when unknown; the nudge's window id. */
+export function promoEnd(home: string): number | null {
+  return promoSchedule(home)?.nextAt ?? null
+}
+
+/** True while og-promo has the rung in a root [native] lane of omo.jsonc. */
+export function promoOn(home: string): boolean {
   try {
-    on = rungOn(readFileSync(join(home, ".omo", "omo.jsonc"), "utf8"))
+    return rungOn(readFileSync(join(home, ".omo", "omo.jsonc"), "utf8"))
   } catch {
-    return undefined // no or unparsable config: nothing to show
+    return false // no or unparsable config
   }
-  if (!on) return undefined
-  const endAt = promoEnd(home)
-  if (endAt === null || endAt <= now) return "deepseek 할인"
-  const minutes = Math.floor((endAt - now) / 60_000)
+}
+
+/** deepseek's discount now and the time until the price changes (`deepseek 50% ~9h 27m`); just the rate once that
+ * time has passed without a newer schedule; nothing without a discount. */
+export function promoStatus(home: string, now = Date.now()): string | undefined {
+  const schedule = promoSchedule(home)
+  if (!schedule) return undefined
+  const changed = schedule.nextAt !== null && schedule.nextAt <= now
+  const percent = Math.round(((changed ? schedule.discountNext : schedule.discountNow) ?? 0) * 100)
+  if (percent <= 0) return undefined
+  if (schedule.nextAt === null || changed) return `deepseek ${percent}%`
+  const minutes = Math.floor((schedule.nextAt - now) / 60_000)
   const hours = Math.floor(minutes / 60)
   const left = hours >= 24 ? `${hours}h` : hours > 0 ? `${hours}h ${minutes % 60}m` : `${minutes}m`
-  return `deepseek 할인 ~${left}`
+  return `deepseek ${percent}% ~${left}`
 }
 
 // Hidden messages after the typed prompt; the system prompt stays untouched, so the cache survives the toggle.
@@ -110,13 +132,11 @@ export default function (pi: any): void {
       }
     }
     refresh()
-    // og-promo writes through tmp + rename, so watch the directories, not the files.
-    for (const [dir, file] of [[join(home, ".omo"), "omo.jsonc"], [join(home, ".omo", "og-promo"), "state.json"]]) {
-      try {
-        watchers.push(watch(dir, (_kind, name) => { if (name === file) refresh() }))
-      } catch {
-        // directory missing: the minute timer still refreshes
-      }
+    // Watch the directory, not the file, so a state.json that is replaced or recreated is still seen.
+    try {
+      watchers.push(watch(join(home, ".omo", "og-promo"), (_kind, name) => { if (name === "state.json") refresh() }))
+    } catch {
+      // directory missing: the minute timer still refreshes
     }
     timer = setInterval(refresh, 60_000)
     timer.unref?.()
@@ -125,7 +145,7 @@ export default function (pi: any): void {
     if (event?.preview === true || (event?.trigger ?? "prompt") !== "prompt") return undefined
     const home = homedir()
     const branch = turn?.sessionManager?.getBranch?.() ?? []
-    const message = promoMessage(promoStatus(home) !== undefined, promoEnd(home), branch)
+    const message = promoMessage(promoOn(home), promoEnd(home), branch)
     return message && { message }
   }, { previewSafe: true })
   pi.on("session_shutdown", () => {

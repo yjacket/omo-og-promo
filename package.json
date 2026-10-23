@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "OMO/Senpi extension: footer countdown and lane nudge while OpenGateway's deepseek 90% window is on, plus og-promo.mjs that toggles the rung in ~/.omo/omo.jsonc.",
+  "description": "OMO/Senpi extension: footer with deepseek's OpenGateway discount and countdown, lane nudge while its 90% window is on, plus og-promo.mjs that toggles the rung in ~/.omo/omo.jsonc.",
   "pi": {
     "extensions": [
       "extension/og-promo-status.ts"
