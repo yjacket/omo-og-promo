@@ -1,10 +1,10 @@
 // User-managed (not OMO): footer label while og-promo (~/.omo/og-promo, task omo-og-promo) has its
 // deepseek rung in ~/.omo/omo.jsonc. Read-only; the footer never reaches the model or the prompt cache.
-// Once per discount window, a typed prompt also gets a hidden nudge toward the discounted lanes (NUDGE), and the
-// first typed prompt after the window gets a one-line retraction (END).
-import { readFileSync, watch, type FSWatcher } from "node:fs"
+// Once per discount window (again after a compaction), a typed prompt also gets a hidden nudge toward the discounted
+// lanes (nudge()), and the first typed prompt after the window gets a one-line retraction (END).
+import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 
 const STATUS_KEY = "omo-og-promo"
 const RUNG = "\"opengateway/deepseek/deepseek-v4.1-flash-ultrafast"
@@ -38,18 +38,33 @@ export function promoStatus(home: string, now = Date.now()): string | undefined 
 
 // Hidden messages after the typed prompt; the system prompt stays untouched, so the cache survives the toggle.
 const NUDGE_TYPE = "og-promo-nudge"
-export const NUDGE = `<og-promo-nudge>
-Until an og-promo-end note, category quick and the explore/librarian agents run on a 90%-off model; other categories cost as usual. For non-trivial code work: plan with many parallel explore/librarian searches; implement through workflows (mass-ulw for ordered phases, several when lanes are independent), sending self-contained lanes (named files, steps, success check) to quick.
+
+/** The installed mass-ulw SKILL.md (OMO_BIN is omo-ai/bin/omo.js), or undefined when it cannot be found. */
+export function massUlwSkill(env: Record<string, string | undefined> = process.env): string | undefined {
+  if (!env.OMO_BIN) return undefined
+  const path = join(dirname(env.OMO_BIN), "..", "plugin", "skills", "mass-ulw", "SKILL.md")
+  return existsSync(path) ? path : undefined
+}
+
+// Skill pointers only fire on typed input, never on extension messages, so the nudge names the skill file itself.
+export function nudge(skill = massUlwSkill()): string {
+  const read = skill ? ` (read ${skill} with the read tool first and follow it)` : " (read the mass-ulw skill first and follow it)"
+  return `<og-promo-nudge>
+Until an og-promo-end note, category quick and the explore/librarian agents run on a 90%-off model; other categories and your own direct work cost as usual. For non-trivial code work: plan with many parallel explore/librarian searches; implement through mass-ulw workflows${read}, split into as many self-contained quick lanes (named files, steps, success check) as the work safely allows. Route a lane above quick only with a one-line reason.
 </og-promo-nudge>`
+}
 export const END = "<og-promo-end>The discount is over: disregard the earlier og-promo-nudge.</og-promo-end>"
 
-/** The message to add before this prompt: NUDGE once per window, END once after it, else nothing. */
-export function promoMessage(on: boolean, window: number | null, branch: any[]) {
-  const last = branch.filter(e => e?.type === "custom_message" && e.customType === NUDGE_TYPE).at(-1)
+/** The message to add before this prompt: the nudge once per window and again after a compaction, END once after
+ * the window, else nothing. */
+export function promoMessage(on: boolean, window: number | null, branch: any[], content = nudge()) {
+  const at = branch.findLastIndex(e => e?.type === "custom_message" && e.customType === NUDGE_TYPE)
+  const last = at >= 0 ? branch[at] : undefined
   const lastOn = last !== undefined && last.details?.on !== false
   if (on) {
-    if (lastOn && last.details?.window === window) return undefined
-    return { customType: NUDGE_TYPE, content: NUDGE, display: false, details: { on: true, window } }
+    const compacted = branch.findLastIndex(e => e?.type === "compaction") > at
+    if (lastOn && last.details?.window === window && !compacted) return undefined
+    return { customType: NUDGE_TYPE, content, display: false, details: { on: true, window } }
   }
   return lastOn ? { customType: NUDGE_TYPE, content: END, display: false, details: { on: false } } : undefined
 }
