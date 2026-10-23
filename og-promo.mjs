@@ -95,7 +95,8 @@ async function fetchSchedule() {
     }
     if (!body) throw lastError
   }
-  const entry = Object.values(body).find((e) => e?.modelName === PRICE_MODEL)
+  // Since 2026-10-23 the models sit under `entries` ({ priceVersion, generatedAt, currency, unit, entries }).
+  const entry = Object.values(body.entries ?? body).find((e) => e?.modelName === PRICE_MODEL)
   if (!entry) throw new Error(`${PRICE_MODEL} is not in the price list`)
   const pricing = entry.pricing ?? {}
   const nextAt = pricing.next?.at ? Date.parse(pricing.next.at) : null
