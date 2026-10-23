@@ -1,5 +1,5 @@
 // User-managed (not OMO): footer label while og-promo (~/.omo/og-promo, task omo-og-promo) has its
-// deepseek rung in ~/.omo/omo.jsonc. Read-only; the footer never reaches the model or the prompt cache.
+// deepseek rung in the root [native] lanes of ~/.omo/omo.jsonc (profiles are not looked at). Read-only; the footer never reaches the model or the prompt cache.
 // Once per discount window (again after a compaction), a typed prompt also gets a hidden nudge toward the discounted
 // lanes (nudge()), and the first typed prompt after the window gets a one-line retraction (END).
 import { existsSync, readFileSync, watch, type FSWatcher } from "node:fs"
@@ -7,7 +7,26 @@ import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 
 const STATUS_KEY = "omo-og-promo"
-const RUNG = "\"opengateway/deepseek/deepseek-v4.1-flash-ultrafast"
+const MODEL = "opengateway/deepseek/deepseek-v4.1-flash-ultrafast"
+// The lanes og-promo.mjs toggles, under the root "[native]".
+const LANES = [["categories", "quick"], ["agents", "explore"], ["agents", "librarian"]]
+
+type Rung = string | { model?: string }
+type Lanes = Record<string, Record<string, { models?: Rung[] } | undefined> | undefined>
+
+/** JSONC text to a value: comments, then trailing commas, removed outside strings. */
+function parseJsonc(text: string): unknown {
+  const keepStrings = (_match: string, str?: string) => str ?? ""
+  const plain = text.replace(/("(?:\\.|[^"\\])*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//g, keepStrings)
+  return JSON.parse(plain.replace(/("(?:\\.|[^"\\])*")|,(?=\s*[}\]])/g, keepStrings))
+}
+
+/** True while the rung leads or sits in a root [native] lane; a copy left in a profile does not count. */
+export function rungOn(config: string): boolean {
+  const native = (parseJsonc(config) as { "[native]"?: Lanes } | null)?.["[native]"]
+  return LANES.some(([kind, name]) =>
+    (native?.[kind]?.[name]?.models ?? []).some(rung => (typeof rung === "string" ? rung.split(":")[0] : rung?.model) === MODEL))
+}
 
 /** When the discounted price ends (og-promo's state nextAt), or null when unknown. */
 export function promoEnd(home: string): number | null {
@@ -20,13 +39,12 @@ export function promoEnd(home: string): number | null {
 }
 
 export function promoStatus(home: string, now = Date.now()): string | undefined {
-  let config: string
+  let on: boolean
   try {
-    config = readFileSync(join(home, ".omo", "omo.jsonc"), "utf8")
+    on = rungOn(readFileSync(join(home, ".omo", "omo.jsonc"), "utf8"))
   } catch {
-    return undefined // no config: nothing to show
+    return undefined // no or unparsable config: nothing to show
   }
-  const on = config.split("\n").some(line => line.includes(RUNG) && !line.trimStart().startsWith("//"))
   if (!on) return undefined
   const endAt = promoEnd(home)
   if (endAt === null || endAt <= now) return "deepseek 할인"
