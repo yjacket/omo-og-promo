@@ -1,5 +1,13 @@
 # omo-og-promo
 
+The successor implementation lives in `omo-routing`: authored chains and
+temporary policies are separate, so editing/resetting a category cannot erase
+an active discount. It also owns the discount footer/hint and optional manual
+Codex preference with public reset signals. See the routing package's migration
+section before upgrading: disable the old `omo-og-promo` scheduled task and
+remove this extension before enabling integrated routing. Do not run both
+writers. No live task or installation is changed by these source edits.
+
 While OpenGateway sells `deepseek-v4.1-flash-ultrafast` at 90% off or more, put its rung first in the root `[native]` quick / explore / librarian chains of `~/.omo/omo.jsonc`; take it out again 15 minutes before the window ends.
 
 - `og-promo.mjs`: reads the price schedule from `https://opengateway.ai/api/model-prices` and edits `omo.jsonc` in place (comments and layout kept, written through tmp + rename, previous file kept as `omo.jsonc.before-switch`). Uses `parseJsonc` / `parseJsoncTree` from the omo-routing package (`~/.omo/agent/git/github.com/yjacket/omo-routing/extension/routing.ts`, falling back to the old `~/.omo/agent/extensions/routing.ts`; `--extension <path>` overrides both).
