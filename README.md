@@ -1,3 +1,5 @@
+> **DEPRECATED - DO NOT USE.** This extension (`omo-og-promo`) is deprecated and must not be installed or used. Replacement: [`omo-routing`](https://github.com/yjacket/omo-routing) (OpenGateway discount policy), which owns the discount footer, the lane nudge, and the policy/reset logic. Disable the old `omo-og-promo` scheduled task and remove this extension before enabling routing in `omo-routing`. This repository is archived and read-only.
+
 # omo-og-promo
 
 The successor implementation lives in `omo-routing`: authored chains and
